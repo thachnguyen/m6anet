@@ -52,8 +52,11 @@ def combine(read_name, eventalign_per_read, out_paths, locks):
     eventalign_result["norm_std"] = sum_norm_std / total_length
     eventalign_result["dwell_time"] = sum_dwell_time / total_length
     eventalign_result.reset_index(inplace=True)
-
-    eventalign_result['transcript_id'] = [contig for contig in eventalign_result['contig']]
+    try:
+        eventalign_result['transcript_id'] = eventalign_result['contig']
+    except Exception:
+        print(eventalign_result.head())
+        raise ValueError("Error")
     eventalign_result['transcriptomic_position'] = pd.to_numeric(eventalign_result['position']) + 2 # the middle position of 5-mers.
     eventalign_result['read_id'] = [read_name] * len(eventalign_result)
 
