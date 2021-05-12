@@ -6,6 +6,7 @@ import torch
 import json
 from itertools import product
 from torch.utils.data import Dataset
+from sklearn.model_selection import GroupShuffleSplit
 from .normalization import annotate_kmer_information, create_kmer_mapping_df, create_norm_dict
 
 
@@ -13,6 +14,7 @@ class NanopolishReplicatesDS(Dataset):
 
     def __init__(self, root_dirs, min_reads, norm_path=None, site_info=None,
                  num_neighboring_features=1, mode='Inference', site_mode=False,
+                 norm_dict_save_path=None,
                  n_processes=1):
         allowed_mode = ('Train', 'Test', 'Val', 'Inference')
         
@@ -31,7 +33,7 @@ class NanopolishReplicatesDS(Dataset):
         if norm_path is not None:
             self.norm_dict = joblib.load(norm_path)
         else:
-            self.norm_dict = self.compute_norm_factors(n_processes)
+            self.norm_dict = self.compute_norm_factors(n_processes, norm_dict_save_path)
 
         if num_neighboring_features > 5:
             raise ValueError("Invalid neighboring features number {}".format(num_neighboring_features))
@@ -90,8 +92,8 @@ class NanopolishReplicatesDS(Dataset):
                     if kmer != kmer_rep:
                         raise ValueError("Found different kmer at the same position of replicates {}, {}, {}, {}"\
                                              .format(tx_id, tx_pos, kmer, kmer_rep))
-                all_features.append(features)
-        return kmer, np.concatenate(features)
+                all_features.append(np.array(features))
+        return kmer, np.concatenate(all_features, axis=0)
 
     def __getitem__(self, idx):
         kmer, features = self._load_data(idx)
@@ -127,12 +129,15 @@ class NanopolishReplicatesDS(Dataset):
             norm_std.append(std)
         return np.concatenate(norm_mean), np.concatenate(norm_std)
 
-    def compute_norm_factors(self, n_processes):
+    def compute_norm_factors(self, n_processes, norm_dict_save_path):
         if "kmer" not in self.data_info.columns:
             print("k-mer information is not present in column, annotating k-mer information in data info")
-            self.data_info = annotate_kmer_information(self.data_fpath, self.data_info, n_processes)
-        kmer_mapping_df = create_kmer_mapping_df(self.data_info)
-        norm_dict = create_norm_dict(kmer_mapping_df, self.data_fpath, n_processes)
+            self.data_info = annotate_kmer_information(self.data_fpaths, self.data_info, n_processes)
+        kmer_mapping_df = create_kmer_mapping_df(self.data_info, self.data_fpaths)
+        norm_dict = create_norm_dict(kmer_mapping_df, self.data_fpaths, n_processes)
+
+        if norm_dict_save_path is not None:
+            joblib.dump(norm_dict, os.path.join(norm_dict_save_path, "norm_dict.joblib"))
         return norm_dict
 
     def _retrieve_full_sequence(self, kmer, n_neighboring_features=0):
@@ -165,17 +170,32 @@ class NanopolishReplicatesDS(Dataset):
 
             data_info = data_index.merge(read_count, on=["transcript_id", "transcript_position"])\
                 .set_index(["transcript_id", "transcript_position"])
-            data_info = data_info.rename({col: "{}_{}".format(col, rep_name) for col in 
-                                          ["start", "end", "n_reads", "kmer"]}, axis=1)
+            # Rename will not throw an error if the column specified is not present
+            data_info = data_info.rename(columns={col: "{}_{}".format(col, rep_name) for col in 
+                                                  ["start", "end", "n_reads", "kmer" ,"modification_status", "set_type"]})
             if all_data is None:
                 all_data = data_info
                 all_data = all_data.rename({'kmer_{}'.format(rep_name): "kmer"}, axis=1)
+
+                if self.mode != 'Inference':
+                    all_data = all_data.rename({'modification_status_{}'.format(rep_name): "modification_status"}, axis=1)
+                    all_data = all_data.rename({'set_type_{}'.format(rep_name): "set_type"}, axis=1)
+                
             else:
                 new_kmer_col = "kmer_{}".format(rep_name)
                 all_data = all_data.merge(data_info, how='inner', on=["transcript_id", "transcript_position"])
                 assert(np.all(all_data["kmer"] == all_data[new_kmer_col]))
                 all_data = all_data.drop(new_kmer_col, axis=1)
-                
-        # Perform check for kmer annotations
-        all_data["n_reads"] = all_data[["n_reads_{}".format(rep_name) for rep_name in rep_names]].sum(axis=1)        
+
+                # Checking if the label is consistent
+                if self.mode != 'Inference':
+                    new_mod_column = "modification_status_{}".format(rep_name)
+                    new_set_column = "set_type_{}".format(rep_name)
+                    assert(np.all(all_data["modification_status"] == all_data[new_mod_column]))
+                    assert(np.all(all_data["set_type"] == all_data[new_set_column]))
+                    all_data = all_data.drop(new_mod_column, axis=1)
+                    all_data = all_data.drop(new_set_column, axis=1)
+
+        all_data["n_reads"] = all_data[["n_reads_{}".format(rep_name) for rep_name in rep_names]].sum(axis=1) # Perform check for kmer annotations
+        all_data = all_data.reset_index() # Restoring transcript_id and position to the columns 
         return all_data[all_data["n_reads"] >= min_reads].reset_index(drop=True)

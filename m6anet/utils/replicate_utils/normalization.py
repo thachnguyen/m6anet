@@ -16,10 +16,10 @@ def get_mean_std(task):
     for _, row in site_df.iterrows():
         tx_id, tx_pos, segment_number = row["transcript_id"], row["transcript_position"], row["segment_number"]
         for rep_name, data_fpath in data_fpaths.items():
-            start_pos, end_pos, segment_number = row["start_{}".format(rep_name)], row["end_{}".format(rep_name)]
+            start_pos, end_pos = row["start_{}".format(rep_name)], row["end_{}".format(rep_name)]
             features = read_features(data_fpath, tx_id, tx_pos, start_pos, end_pos)
             indices = np.arange(3 * segment_number, 3 * (segment_number + 1))
-            signals = features[:, indices]}
+            signals = features[:, indices]
             sum_X.append(np.sum(signals, axis=0))
             sum_X2.append(np.sum(np.square(signals), axis=0))
         n_reads += row["n_reads"]
@@ -68,7 +68,8 @@ def create_kmer_mapping_df(merged_df, data_fpaths):
     rep_columns = data_fpaths.keys()
     start_columns = ["start_{}".format(rep_name) for rep_name in rep_columns]
     end_columns = ["end_{}".format(rep_name) for rep_name in rep_columns]
-    for _, row in merged_df.iterrows():
+    print("Creating kmer segment mapping to compute normalization factors...")
+    for _, row in tqdm(merged_df.iterrows(), total=len(merged_df)):
         tx, tx_position, sequence, n_reads = row["transcript_id"], row["transcript_position"], row["kmer"], row["n_reads"]
         starts = row[start_columns]
         ends = row[end_columns]
@@ -76,13 +77,14 @@ def create_kmer_mapping_df(merged_df, data_fpaths):
         for i in range(len(kmers)):
             kmer_mapping_df += [(tx, tx_position, n_reads, kmers[i], i) + tuple(starts) + tuple(ends)]
 
-    col_names = ["transcript_id", "transcript_position", "kmer", "segment_number"] + start_columns + end_columns
+    col_names = ["transcript_id", "transcript_position", "n_reads", "kmer", "segment_number"] + start_columns + end_columns
     kmer_mapping_df = pd.DataFrame(kmer_mapping_df, columns=col_names)
     return kmer_mapping_df
 
 
 def create_norm_dict(kmer_mapping_df, data_fpaths, n_processes):
     tasks = ((kmer, df, data_fpaths) for kmer, df in kmer_mapping_df.groupby("kmer"))
+    print("Computing normalization factors...")
     with Pool(n_processes) as p:
         norm_dict = [x for x in tqdm(p.imap_unordered(get_mean_std, tasks), total=len(kmer_mapping_df["kmer"].unique()))]
     return {tup[0]: (tup[1], tup[2]) for tup in norm_dict}

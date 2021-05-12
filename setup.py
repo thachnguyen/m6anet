@@ -35,7 +35,9 @@ setup(
                                       "m6anet-compute_norm_factors={}.scripts.compute_normalization_factors:main".format(__pkg_name__),
                                       "m6anet-train={}.scripts.train:main".format(__pkg_name__),
                                       "m6anet-create_cv_split={}.scripts.create_cv_split:main".format(__pkg_name__),
-                                      "m6anet-cross_validate={}.scripts.cross_validate:main".format(__pkg_name__)]},
+                                      "m6anet-cross_validate={}.scripts.cross_validate:main".format(__pkg_name__),
+                                      "m6anet-annotate={}.scripts.annotate_m6a:main".format(__pkg_name__)]},
+
     classifiers=[
         # Trove classifiers
         # (https://pypi.python.org/pypi?%3Aaction=list_classifiers)

@@ -6,25 +6,25 @@ from tqdm import tqdm
 from multiprocessing import Pool
 from pyensembl import Genome
 from sklearn.model_selection import GroupShuffleSplit
+from ..utils.replicate_utils.normalization import annotate_kmer_information
 from tqdm import tqdm
 
-def add_chromosome_and_gene_info(info_df):
+def add_chromosome_and_gene_info(info_df, chr_map, genome):
     info_df["chr"] = info_df["transcript_id"].apply(lambda x: chr_map[genome.transcript_by_id(x).contig])
     info_df["gene_id"] = info_df["transcript_id"].apply(lambda x: genome.transcript_by_id(x).gene_id)
     return info_df
 
 
 def _add_genomic_position(task):
-    tx, tx_df = task
+    tx, tx_df, gt_dir = task
     gt_map = pd.read_csv(os.path.join(gt_dir, tx, "gt_mapping.csv.gz")).set_index("tx_pos")
     tx_df["genomic_position"] = gt_map["g_pos"].loc[tx_df["transcript_position"]].values
-    tx_df["kmer"] = gt_map["kmer"].loc[tx_df["transcript_position"]].values
     return tx_df
 
 
-def add_genomic_position(info_df, n_jobs=1):
+def add_genomic_position(info_df, gt_dir, n_jobs=1):
     with Pool(n_jobs) as p:
-        tasks = ((tx, df) for tx, df in info_df.groupby("transcript_id"))
+        tasks = ((tx, df, gt_dir) for tx, df in info_df.groupby("transcript_id"))
         n_transcripts = len(info_df.transcript_id.unique())
         res_df = [x for x in tqdm(p.imap_unordered(_add_genomic_position, tasks), total=n_transcripts)]
     return pd.concat(res_df).reset_index(drop=True)
@@ -58,7 +58,7 @@ def train_test_val_split(info_df):
     return info_df
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(description="a script to extract raw signals and event align features from tx hdf5 files")
     parser.add_argument('-i', '--input_dir', dest='input_dir', default=None,
                         help="Input directory containing the data.readcount file")
@@ -76,6 +76,8 @@ if __name__ == '__main__':
                         help='path to fasta file')
     parser.add_argument('--gt_dir', dest='gt_dir', default=None, required=True,
                         help='path to gt mapping folder')
+    parser.add_argument("--train_test_val_split", dest="train_test_val_split", default=False, action="store_true")
+
     args = parser.parse_args()
 
     chrsm_annot_dir = args.chrsm_annot_dir
@@ -97,19 +99,23 @@ if __name__ == '__main__':
 
     gt_dir = args.gt_dir
     info_df = pd.read_csv(os.path.join(input_dir, "data.readcount"))
-
+    index_df = pd.read_csv(os.path.join(input_dir, "data.index"))
     all_transcripts = set(genome.transcript_ids())
 
     info_df = info_df[info_df.transcript_id.apply(lambda x: x in all_transcripts)].reset_index(drop=True)
-    info_df = add_chromosome_and_gene_info(info_df)
-    info_df = add_genomic_position(info_df, n_processes)
+    info_df = add_chromosome_and_gene_info(info_df, chr_map, genome)
+    info_df = add_genomic_position(info_df, gt_dir, n_processes)
 
     info_df = get_y(info_df, m6a_table)
+    info_df = info_df.merge(index_df, on=["transcript_id", "transcript_position"])
+    info_df = annotate_kmer_information(os.path.join(input_dir, "data.json"), info_df, n_processes)
 
-    # Filtering sites with less than 20 reads
-    info_df = info_df[info_df["n_reads"] >= 20].reset_index(drop=True)
-    
-    info_df = train_test_val_split(info_df)
+    if args.train_test_val_split:
+        info_df = train_test_val_split(info_df)
+
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     info_df.to_csv(os.path.join(save_dir, "data.readcount.labelled"), index=False)
+
+if __name__ == '__main__':
+    main()
