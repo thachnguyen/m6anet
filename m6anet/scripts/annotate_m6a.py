@@ -66,26 +66,36 @@ if __name__ == '__main__':
                         help="Output directory for the annotated data.readcount file")                   
     parser.add_argument('-n', '--n_jobs', dest='n_jobs', default=1, type=int,
                         help="Number of processors to run the dataloader")
+    parser.add_argument('--chr', dest='chrsm_annot_dir', default=None, required=True,
+                        help='txt file that contains ensembl to ucsc chromosomes mapping')
+    parser.add_argument('--gtf', dest='gtf_path', default=None, required=True,
+                        help='path to GTF file')
+    parser.add_argument('--fasta', dest='fasta_path', default=None, required=True,
+                        help='path to fasta file')
+    parser.add_argument('--annot', dest='m6a_table', default=None, required=True,
+                        help='path to fasta file')
+    parser.add_argument('--gt_dir', dest='gt_dir', default=None, required=True,
+                        help='path to gt mapping folder')
     args = parser.parse_args()
 
-    chrsm_annot_dir = "/home/christopher/annotations/chrsm_annot.txt"
+    chrsm_annot_dir = args.chrsm_annot_dir
     genome = Genome(reference_name='GRCh38',
                 annotation_name='my_genome_features',
-                gtf_path_or_url='/home/christopher/annotations/Homo_sapiens.GRCh38.91.chr_patch_hapl_scaff.gtf',
-                transcript_fasta_paths_or_urls='/home/christopher/annotations/Homo_sapiens.GRCh38.cdna.ncrna.fa') 
+                gtf_path_or_url=args.gtf_path,
+                transcript_fasta_paths_or_urls=args.fasta_path) 
     chr_map = {}
     with open(chrsm_annot_dir) as f:
         for line in f:
             ensembl, ucsc = line.strip("\n").split("\t")
             chr_map[ensembl] = ucsc
 
-    m6ace = pd.read_table("/home/christopher/annotations/m6ACE_HCT116.txt", header=None).set_index([2, 0])
+    m6a_table = pd.read_csv(args.m6a_table).set_index(["End", "Chr"])
 
     input_dir = args.input_dir
     save_dir = args.save_dir
     n_processes = args.n_jobs   
 
-    gt_dir = "/data03/christopher/gt_mapping_final/"
+    gt_dir = args.gt_dir
     info_df = pd.read_csv(os.path.join(input_dir, "data.readcount"))
 
     all_transcripts = set(genome.transcript_ids())
@@ -94,7 +104,7 @@ if __name__ == '__main__':
     info_df = add_chromosome_and_gene_info(info_df)
     info_df = add_genomic_position(info_df, n_processes)
 
-    info_df = get_y(info_df, m6ace)
+    info_df = get_y(info_df, m6a_table)
 
     # Filtering sites with less than 20 reads
     info_df = info_df[info_df["n_reads"] >= 20].reset_index(drop=True)
