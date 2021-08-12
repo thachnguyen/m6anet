@@ -30,11 +30,11 @@ def add_genomic_position(info_df, gt_dir, n_jobs=1):
     return pd.concat(res_df).reset_index(drop=True)
 
 
-def get_y(info_df, table):
+def get_y(info_df, table, mod_column):
     g, chrsm = info_df["genomic_position"].values, info_df["chr"].values
-    info_df["modification_status"] = np.array([1 if (g_pos, chr_id) in table.index else 0
-                                               for g_pos, chr_id in tqdm(zip(g, chrsm), total=len(g),
-                                               desc="Getting label information")]) 
+    info_df[mod_column] = np.array([1 if (g_pos, chr_id) in table.index else 0
+                                    for g_pos, chr_id in tqdm(zip(g, chrsm), total=len(g),
+                                    desc="Getting label information")]) 
     return info_df
 
 
@@ -72,9 +72,11 @@ def main():
                         help='path to GTF file')
     parser.add_argument('--fasta', dest='fasta_path', default=None, required=True,
                         help='path to fasta file')
-    parser.add_argument('--annot', dest='m6a_table', default=None, required=True,
+    parser.add_argument('--annot', dest='m6a_tables', default=None, required=True, nargs="*",
                         help='path to fasta file')
     parser.add_argument('--gt_dir', dest='gt_dir', default=None, required=True,
+                        help='path to gt mapping folder')
+    parser.add_argument('--mod_column', dest='mod_columns', default="modification_status", required=True, nargs="*",
                         help='path to gt mapping folder')
     parser.add_argument("--train_test_val_split", dest="train_test_val_split", default=False, action="store_true")
 
@@ -90,10 +92,10 @@ def main():
         for line in f:
             ensembl, ucsc = line.strip("\n").split("\t")
             chr_map[ensembl] = ucsc
+    tables = args.m6a_tables
+    mod_columns = args.mod_columns
 
-    m6a_table = pd.read_csv(args.m6a_table).set_index(["End", "Chr"])
-
-    input_dir = args.input_dir
+    input_dir = args.input_dir  
     save_dir = args.save_dir
     n_processes = args.n_jobs   
 
@@ -106,7 +108,12 @@ def main():
     info_df = add_chromosome_and_gene_info(info_df, chr_map, genome)
     info_df = add_genomic_position(info_df, gt_dir, n_processes)
 
-    info_df = get_y(info_df, m6a_table)
+    for m6a_table_fpath, mod_column in zip(tables, mod_columns):
+        m6a_table = pd.read_csv(m6a_table_fpath).set_index(["End", "Chr"])
+        info_df = get_y(info_df, m6a_table, mod_column)
+    print(info_df.columns)
+    info_df["modification_status"] = info_df[mod_columns].any(axis=1)
+
     info_df = info_df.merge(index_df, on=["transcript_id", "transcript_position"])
     info_df = annotate_kmer_information(os.path.join(input_dir, "data.json"), info_df, n_processes)
 

@@ -1,4 +1,5 @@
 [console_scripts]
+m6anet-annotate = m6anet.scripts.annotate_m6a:main
 m6anet-compute_norm_factors = m6anet.scripts.compute_normalization_factors:main
 m6anet-create_cv_split = m6anet.scripts.create_cv_split:main
 m6anet-cross_validate = m6anet.scripts.cross_validate:main
