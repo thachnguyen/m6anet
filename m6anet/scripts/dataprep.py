@@ -194,10 +194,10 @@ def parallel_preprocess_tx(eventalign_filepath,out_dir,n_processes,readcount_min
     
     # Create output paths and locks.
     out_paths,locks = dict(),dict()
-    for out_filetype in ['json','index','log','readcount']:
+    for out_filetype in ['json','index','log','readcount', 'error']:
         out_paths[out_filetype] = os.path.join(out_dir,'data.%s' %out_filetype)
         locks[out_filetype] = multiprocessing.Lock()
-                
+  
     # Writing the starting of the files.
 
     open(out_paths['json'],'w').close()
@@ -206,7 +206,7 @@ def parallel_preprocess_tx(eventalign_filepath,out_dir,n_processes,readcount_min
     with open(out_paths['readcount'],'w') as f:
         f.write('transcript_id,transcript_position,n_reads\n') # header
     open(out_paths['log'],'w').close()
-
+    open(out_paths['error'], 'w').close()
     # Create communication queues.
     task_queue = multiprocessing.JoinableQueue(maxsize=n_processes * 2)
 
@@ -296,16 +296,17 @@ def preprocess_tx(tx_id,data_dict,n_neighbors,out_paths,locks):  # todo
     # Prepare
     # print('Reformating the data for each genomic position ...')
     data = defaultdict(dict)
-
+    skipped_data = defaultdict(dict)
 
     # for each position, make it ready for json dump
     for position, features_array, reference_kmer_array in zip(positions, features_arrays, reference_kmer_arrays):
         kmer = set(reference_kmer_array)
-        assert(len(kmer) == 1)
-        if (len(set(reference_kmer_array)) == 1) and ('XXXXX' in set(reference_kmer_array)) or (len(features_array) == 0):
+        if len(kmer) > 1:
+            skipped_data[int(position)] = kmer
+        elif (len(set(reference_kmer_array)) == 1) and ('XXXXX' in set(reference_kmer_array)) or (len(features_array) == 0):
             continue
-
-        data[int(position)] = {kmer.pop(): features_array.tolist()}
+        else:
+            data[int(position)] = {kmer.pop(): features_array.tolist()}
 
     # write to file.
     log_str = '%s: Data preparation ... Done.' %(tx_id)
@@ -328,6 +329,10 @@ def preprocess_tx(tx_id,data_dict,n_neighbors,out_paths,locks):  # todo
                 n_reads += len(features)
             h.write('%s,%d,%d\n' %(tx_id,pos,n_reads))
         
+    with locks['error'], open(out_paths['error'], 'a') as f:
+        for pos, kmers in skipped_data.items():
+            f.write("{}_{}: {} \n".format(tx_id, pos, ",".join(kmers)))
+
     with locks['log'], open(out_paths['log'],'a') as f:
         f.write(log_str + '\n')
         
