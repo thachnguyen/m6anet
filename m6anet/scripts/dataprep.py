@@ -216,7 +216,7 @@ def parallel_preprocess_tx(eventalign_filepath,out_dir,n_processes,readcount_min
         p.start()
     
     df_eventalign_index = pd.read_csv(os.path.join(out_dir,'eventalign.index'))
-    df_eventalign_index['transcript_id'] = [tx_id.split('.')[0] for tx_id in  df_eventalign_index['transcript_id']]
+    df_eventalign_index['transcript_id'] = df_eventalign_index['transcript_id'].values
     tx_ids = df_eventalign_index['transcript_id'].values.tolist()
     tx_ids = list(dict.fromkeys(tx_ids))
     df_eventalign_index.set_index('transcript_id',inplace=True)
