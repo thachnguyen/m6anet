@@ -179,7 +179,7 @@ def combine(events_str):
         eventalign_result.reset_index(inplace=True)
 
 
-        eventalign_result['transcript_id'] = [contig.split('.')[0] for contig in eventalign_result['contig']]    #### CHANGE MADE ####
+        eventalign_result['transcript_id'] = eventalign_result['contig']    #### CHANGE MADE ####
 
         eventalign_result['transcriptomic_position'] = pd.to_numeric(eventalign_result['position']) + 2 # the middle position of 5-mers.
         features = ['transcript_id','read_index','transcriptomic_position','reference_kmer','norm_mean','norm_std','dwell_time']
